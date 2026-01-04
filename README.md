@@ -48,3 +48,13 @@ as primary goals.
 ```bash
 cmake -S . -B build
 cmake --build build
+```
+
+
+##  Interactive Dashboard
+
+TitanServer includes a browser-based dashboard to visualize
+request handling, routing, caching, and concurrency in real time.
+
+Visit:
+http://localhost:8080/dashboard

@@ -5,7 +5,11 @@ int main() {
     Logger::instance().info("TitanServer starting...");
 
     try {
-        TcpServer server(8080);
+        // Thread count = hardware concurrency
+        size_t threads = std::thread::hardware_concurrency();
+        if (threads == 0) threads = 4;
+
+        TcpServer server(8080, threads);
         server.start();
     }
     catch (const std::exception& ex) {

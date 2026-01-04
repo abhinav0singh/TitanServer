@@ -1,12 +1,14 @@
-#include "TcpServer.h"
+﻿#include "TcpServer.h"
 #include "Logger.h"
 #include "HttpParser.h"
 #include "HttpHandler.h"
 
 #include <string>
 
-TcpServer::TcpServer(int port)
-    : serverSocket_(INVALID_SOCKET), port_(port) {
+TcpServer::TcpServer(int port, size_t threadCount)
+    : serverSocket_(INVALID_SOCKET),
+    port_(port),
+    pool_(threadCount) {
 
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -36,7 +38,10 @@ TcpServer::TcpServer(int port)
         throw std::runtime_error("Listen failed");
     }
 
-    Logger::instance().info("Server listening on port " + std::to_string(port_));
+    Logger::instance().info(
+        "Server listening on port " + std::to_string(port_) +
+        " with thread pool"
+    );
 }
 
 TcpServer::~TcpServer() {
@@ -52,21 +57,33 @@ void TcpServer::start() {
             continue;
         }
 
-        char buffer[4096];
-        int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
-        if (bytesReceived > 0) {
-            buffer[bytesReceived] = '\0';
+        // 🔥 Hand client off to thread pool
+        pool_.enqueue([clientSocket]() {
 
-            std::string rawRequest(buffer);
+            char buffer[4096];
+            int bytesReceived = recv(clientSocket, buffer,
+                sizeof(buffer) - 1, 0);
 
-            HttpRequest request = HttpParser::parse(rawRequest);
-            HttpResponse response = HttpHandler::handle(request);
+            if (bytesReceived > 0) {
+                buffer[bytesReceived] = '\0';
+                std::string rawRequest(buffer);
 
-            std::string rawResponse = response.toString();
-            send(clientSocket, rawResponse.c_str(),
-                static_cast<int>(rawResponse.size()), 0);
-        }
+                HttpRequest request =
+                    HttpParser::parse(rawRequest);
 
-        closesocket(clientSocket);
+                HttpResponse response =
+                    HttpHandler::handle(request);
+
+                std::string rawResponse =
+                    response.toString();
+
+                send(clientSocket,
+                    rawResponse.c_str(),
+                    static_cast<int>(rawResponse.size()),
+                    0);
+            }
+
+            closesocket(clientSocket);
+            });
     }
 }
