@@ -5,7 +5,7 @@ systems-level programming concepts such as concurrency, memory safety,
 and efficient data structures.
 
 This project focuses on **core server architecture**, not frameworks.
-
+It’s a simple web server written from scratch. It listens for connections, understands HTTP requests, decides what the user wants, and sends back responses. To keep it fast, it caches files in memory, and to handle multiple users, it uses a thread pool instead of spawning unlimited threads.
 ---
 
 ##  Features
