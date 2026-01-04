@@ -9,7 +9,13 @@ add_executable(TitanServer
     src/main.cpp
     src/Logger.cpp
     src/ThreadPool.cpp
-)
+    src/HttpParser.cpp
+    src/HttpResponse.cpp
+    src/HttpHandler.cpp
+    src/FileLoader.cpp
+    src/TcpServer.cpp
+ "include/FileLoader.h" "src/FileLoader.cpp" "include/TcpServer.h" "src/TcpServer.cpp")
+
 
 target_include_directories(TitanServer PRIVATE include)
 
