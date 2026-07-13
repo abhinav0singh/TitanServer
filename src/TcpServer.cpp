@@ -4,6 +4,41 @@
 #include "HttpHandler.h"
 
 #include <string>
+#include <stdexcept>
+#include <algorithm>
+#include <cctype>
+
+namespace {
+
+    // Header lookup that does not care about capitalisation.
+    std::string headerValue(const HttpRequest& req, const std::string& name) {
+        for (const auto& [k, v] : req.headers) {
+            if (k.size() != name.size()) continue;
+            bool same = true;
+            for (size_t i = 0; i < k.size(); ++i) {
+                if (std::tolower((unsigned char)k[i]) !=
+                    std::tolower((unsigned char)name[i])) { same = false; break; }
+            }
+            if (same) return v;
+        }
+        return "";
+    }
+
+    bool wantsKeepAlive(const HttpRequest& req) {
+        std::string conn = headerValue(req, "Connection");
+        std::transform(conn.begin(), conn.end(), conn.begin(),
+            [](unsigned char c) { return (char)std::tolower(c); });
+
+        // HTTP/1.1 keeps the connection open unless told otherwise.
+        // HTTP/1.0 closes it unless told otherwise.
+        if (req.version == "HTTP/1.1") return conn != "close";
+        return conn == "keep-alive";
+    }
+
+    constexpr int  IDLE_TIMEOUT_MS = 2000;  // free the worker if client goes quiet
+    constexpr int  MAX_REQUESTS_PER_CONN = 1000;  // recycle threads eventually
+
+} // namespace
 
 TcpServer::TcpServer(int port, size_t threadCount)
     : serverSocket_(INVALID_SOCKET),
@@ -57,33 +92,68 @@ void TcpServer::start() {
             continue;
         }
 
-        // 🔥 Hand client off to thread pool
+        // An idle client must not pin a worker thread forever.
+        DWORD timeout = IDLE_TIMEOUT_MS;
+        setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO,
+            (const char*)&timeout, sizeof(timeout));
+
+        // One complete response per send() - Nagle only adds latency.
+        BOOL noDelay = TRUE;
+        setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY,
+            (const char*)&noDelay, sizeof(noDelay));
+
         pool_.enqueue([clientSocket]() {
 
-            char buffer[4096];
-            int bytesReceived = recv(clientSocket, buffer,
-                sizeof(buffer) - 1, 0);
+            char buffer[8192];
+            int served = 0;
+            bool keepAlive = true;
 
-            if (bytesReceived > 0) {
+            // Serve requests on this ONE connection until the client
+            // disconnects, asks to close, or goes idle. No new TCP
+            // handshake, no new socket, no TIME_WAIT per request.
+            while (keepAlive && served < MAX_REQUESTS_PER_CONN) {
+
+                int bytesReceived = recv(clientSocket, buffer,
+                    sizeof(buffer) - 1, 0);
+
+                // 0 = client closed cleanly. <0 = error or idle timeout.
+                if (bytesReceived <= 0) break;
+
                 buffer[bytesReceived] = '\0';
-                std::string rawRequest(buffer);
+                HttpRequest request = HttpParser::parse(std::string(buffer));
 
-                HttpRequest request =
-                    HttpParser::parse(rawRequest);
+                keepAlive = wantsKeepAlive(request);
 
-                HttpResponse response =
-                    HttpHandler::handle(request);
+                HttpResponse response = HttpHandler::handle(request);
+                response.setHeader("Connection", keepAlive ? "keep-alive" : "close");
 
-                std::string rawResponse =
-                    response.toString();
+                std::string raw = response.toString();
 
-                send(clientSocket,
-                    rawResponse.c_str(),
-                    static_cast<int>(rawResponse.size()),
-                    0);
+                // send() may write fewer bytes than asked. Loop until done.
+                size_t sent = 0;
+                while (sent < raw.size()) {
+                    int n = send(clientSocket, raw.data() + sent,
+                        static_cast<int>(raw.size() - sent), 0);
+                    if (n <= 0) { keepAlive = false; break; }
+                    sent += n;
+                }
+
+                ++served;
             }
 
+            // Graceful close: signal we're done writing, drain whatever the
+            // client already sent, then close. closesocket() with unread data
+            // pending makes Windows send an RST instead of a FIN.
+            shutdown(clientSocket, SD_SEND);
+
+            DWORD drainTimeout = 200;
+            setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO,
+                (const char*)&drainTimeout, sizeof(drainTimeout));
+
+            char drain[512];
+            while (recv(clientSocket, drain, sizeof(drain), 0) > 0) { }
+
             closesocket(clientSocket);
-            });
+        });
     }
 }

@@ -9,7 +9,7 @@
 
 
 // We need to go up THREE levels to reach project root
-static const std::string WEB_ROOT = "../../../www";
+static const std::string WEB_ROOT = "C:/Users/abhin/Desktop/TitanServer/TitanServer/www";
 
 // Cache: file path -> file contents
 static LRUCache<std::string, std::string> fileCache(5);
@@ -85,17 +85,17 @@ HttpResponse HttpHandler::handle(const HttpRequest& request) {
     }
 
     std::string filePath = WEB_ROOT + path;
-    Logger::instance().info("Trying to load file: " + filePath);
+    Logger::instance().debug("Trying to load file: " + filePath);
 
     std::string content;
 
     // 1️ Cache lookup
     if (fileCache.get(filePath, content)) {
-        Logger::instance().info("Cache hit: " + filePath);
+        Logger::instance().debug("Cache hit: " + filePath);
     }
     // 2️ Load from disk
     else {
-        Logger::instance().info("Cache miss: " + filePath);
+        Logger::instance().debug("Cache miss: " + filePath);
 
         auto loaded = FileLoader::loadFile(filePath);
         if (!loaded) {

@@ -2,6 +2,7 @@
 #include "TcpServer.h"
 
 int main() {
+    Logger::instance().setLevel(LogLevel::Info); 
     Logger::instance().info("TitanServer starting...");
 
     try {

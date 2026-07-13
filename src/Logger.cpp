@@ -19,12 +19,25 @@ static std::string timestamp() {
     return std::string(buffer);
 }
 
-void Logger::info(const std::string& message) {
+// The level check happens BEFORE the lock. A filtered-out log costs one
+// relaxed atomic load - no mutex, no formatting, no console I/O.
+void Logger::write(const char* tag, const std::string& message) {
     std::lock_guard<std::mutex> lock(mutex_);
-    std::cout << "[INFO] " << timestamp() << " - " << message << std::endl;
+    std::cout << tag << " " << timestamp() << " - " << message << "\n";
+}
+
+void Logger::debug(const std::string& message) {
+    if (level() > LogLevel::Debug) return;
+    write("[DEBUG]", message);
+}
+
+void Logger::info(const std::string& message) {
+    if (level() > LogLevel::Info) return;
+    write("[INFO]", message);
 }
 
 void Logger::error(const std::string& message) {
+    if (level() > LogLevel::Error) return;
     std::lock_guard<std::mutex> lock(mutex_);
     std::cerr << "[ERROR] " << timestamp() << " - " << message << std::endl;
 }
